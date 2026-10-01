@@ -34,6 +34,14 @@ public:
     std::size_t count() const { return _count; }
     const RemoteIdTrack* track(std::size_t index) const;
 
+    bool bleActive() const { return _bleInited; }
+    uint8_t wifiChannel() const { return _channel; }
+    uint32_t remoteIdMessages() const { return _ridMessages; }
+    uint32_t wifiRemoteIdMessages() const { return _wifiRidMessages; }
+    uint32_t bleRemoteIdMessages() const { return _bleRidMessages; }
+    uint32_t droppedFrames() const { return _droppedFrames; }
+    uint32_t sessionUniqueDrones() const { return _sessionUniqueDrones; }
+
 private:
     static constexpr size_t RAW_FRAME_MAX = 512;
     static constexpr size_t RAW_QUEUE_LEN = 12;
@@ -65,6 +73,12 @@ private:
     QueueHandle_t _bleQueue = nullptr;
     bool _bleInited = false;
     bool _restoreConnection = false;
+
+    volatile uint32_t _droppedFrames = 0;
+    uint32_t _ridMessages = 0;
+    uint32_t _wifiRidMessages = 0;
+    uint32_t _bleRidMessages = 0;
+    uint32_t _sessionUniqueDrones = 0;
 
     bool _alertActive = false;
     uint32_t _alertUntilMs = 0;
