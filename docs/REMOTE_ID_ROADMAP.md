@@ -22,11 +22,13 @@ or disable aircraft.
 4. **Bluetooth Remote ID** — legacy BLE + BLE 5 extended advertising.
 5. **Multi-drone table** — active tracks, last-seen expiry, transport + RSSI.
 6. **MeowKit UI** — nearby list and per-drone detail view.
-7. **Drone Radar view** — a dedicated radar-style visualization showing relative bearing/range when a receiver reference location is available.
-8. **Optional SD logging** — user-controlled encounter logging.
-9. **Optional alerts** — LED/sound on newly observed Remote ID transmitters.
-10. **Optional PC bridge** — JSON output for tools such as God's Eye View.
-11. **God's Eye View integration** — local Remote ID detections exposed as a distinct Local Drones layer.
+7. **Drone Radar view** — Home-relative radar with cardinal directions, stable distance rings, per-drone labels, and heading ticks.
+8. **Home awareness** — saved receiver/Home coordinate, horizontal range, bearing/cardinal direction, approximate direct range using RID height, and closing/departing trend from successive positions.
+9. **Home-zone alerts** — configurable 50 m–5 km radius, with a distinct visual alert when a detected track enters the configured zone.
+10. **SD logging** — encounter snapshots saved to CSV when an SD card is available.
+11. **Diagnostics** — Wi-Fi channel, BLE state, RID message counts, unique tracks, and dropped-frame counters.
+12. **PC bridge** — newline-delimited USB JSON plus a localhost Windows bridge for downstream tools.
+13. **God's Eye View integration** — local Remote ID detections exposed as a distinct Local Drones layer.
 
 ## Architecture
 
@@ -56,3 +58,22 @@ The intended standards decoder is
 [OpenDroneID Core C](https://github.com/opendroneid/opendroneid-core-c), which is
 licensed under Apache-2.0. Existing ESP32 Remote ID scanner implementations are
 used as implementation references where their licenses permit it.
+
+
+## Home-relative presentation
+
+When Home is configured, the Nearby view prioritizes practical spatial context:
+
+```text
+HOME 420m  SE  BRG 137
+Direct range ~437m (RID height)
+CLOSING
+```
+
+The radar uses a stable human-friendly scale, marks Home at the centre, labels
+tracks as D1, D2, etc., and draws a short heading tick from each track marker.
+A distinct ring marks the configured Home alert radius.
+
+"Direct range" is intentionally approximate because the Remote ID Height field
+may use a reference other than the Home ground elevation. Horizontal Home range
+and bearing are the primary distance/direction values.
