@@ -279,6 +279,8 @@ void DroneScanner::_drawScan()
                          _cardinal(b), _motionText(*closest, _homeLat, _homeLon));
             }
             lcd.drawString(buf, 12, 190);
+            _drawBearingArrow(302, 194, b,
+                              closestM <= _homeAlertRadiusM ? TFT_ORANGE : ACCENT);
         }
     }
 
@@ -364,6 +366,7 @@ void DroneScanner::_drawNearby()
             snprintf(buf, sizeof(buf), "HOME %.0fm  %s  BRG %.0f",
                      d, _cardinal(b), b);
             lcd.drawString(buf, 12, 154);
+            _drawBearingArrow(292, 162, b, ACCENT);
 
             lcd.setTextFont(1);
             lcd.setTextColor(FG, BG);
@@ -716,6 +719,33 @@ const char* DroneScanner::_cardinal(double bearing)
     static const char* DIRS[] = {"N","NE","E","SE","S","SW","W","NW"};
     int idx = static_cast<int>(std::floor((bearing + 22.5) / 45.0)) & 7;
     return DIRS[idx];
+}
+
+void DroneScanner::_drawBearingArrow(int cx, int cy, double bearing, uint16_t color)
+{
+    auto& lcd = _device->Lcd;
+
+    const double angle = (bearing - 90.0) * M_PI / 180.0;
+    const double shaft = 9.0;
+    const double head = 5.0;
+
+    const int tipX = cx + static_cast<int>(std::cos(angle) * shaft);
+    const int tipY = cy + static_cast<int>(std::sin(angle) * shaft);
+    const int tailX = cx - static_cast<int>(std::cos(angle) * 5.0);
+    const int tailY = cy - static_cast<int>(std::sin(angle) * 5.0);
+
+    lcd.drawLine(tailX, tailY, tipX, tipY, color);
+
+    const double left = angle + 2.55;
+    const double right = angle - 2.55;
+
+    const int lX = tipX + static_cast<int>(std::cos(left) * head);
+    const int lY = tipY + static_cast<int>(std::sin(left) * head);
+    const int rX = tipX + static_cast<int>(std::cos(right) * head);
+    const int rY = tipY + static_cast<int>(std::sin(right) * head);
+
+    lcd.drawLine(tipX, tipY, lX, lY, color);
+    lcd.drawLine(tipX, tipY, rX, rY, color);
 }
 
 const char* DroneScanner::_motionText(const RemoteIdTrack& track,
