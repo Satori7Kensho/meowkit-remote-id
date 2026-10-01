@@ -15,7 +15,7 @@
 /* ── LVGL icon declarations ── */
 #include "../ui/ui.h"
 
-/* ── Active native app headers (app_01 ~ app_09) ── */
+/* ── Active native app headers (app_01 ~ app_10) ── */
 #include "app_01/dino.h"        /* Dino         */
 #include "app_02/matrix_rain.h" /* Matrix Rain  */
 #include "app_03/vu_meter.h"    /* VU Meter     */
@@ -25,6 +25,7 @@
 #include "app_07/ble_spam.h"    /* BLE Spam     */
 #include "app_08/badusb.h"      /* Bad USB      */
 #include "app_09/infrared.h"    /* Infrared     */
+#include "app_10/drone_scanner.h" /* Drone Scanner */
 
 #include <mooncake.h>
 #include <memory>
@@ -35,7 +36,7 @@
  */
 inline void registerAllApps(mooncake::Mooncake& mc, DEVICES* dev)
 {
-    /* Menu visual order: left → right, top → bottom (app_01 … app_09) */
+    /* Menu visual order: left → right, top → bottom (app_01 … app_10) */
     mc.installApp(std::make_unique<MOONCAKE::APPS::App01>(dev));     /* app_01  Dino         */
     mc.installApp(std::make_unique<MOONCAKE::APPS::App02>(dev));     /* app_02  Matrix Rain  */
     mc.installApp(std::make_unique<MOONCAKE::APPS::App03>(dev));     /* app_03  VU Meter     */
@@ -44,7 +45,8 @@ inline void registerAllApps(mooncake::Mooncake& mc, DEVICES* dev)
     mc.installApp(std::make_unique<MOONCAKE::APPS::App06>(dev));     /* app_06  Air Mouse    */
     mc.installApp(std::make_unique<MOONCAKE::APPS::App07>(dev));     /* app_07  BLE Spam     */
     mc.installApp(std::make_unique<MOONCAKE::APPS::AppBadUSB>(dev)); /* app_08  Bad USB      */
-    mc.installApp(std::make_unique<MOONCAKE::APPS::App09>(dev));     /* app_09  Infrared     */
+    mc.installApp(std::make_unique<MOONCAKE::APPS::App09>(dev));     /* app_09  Infrared      */
+    mc.installApp(std::make_unique<MOONCAKE::APPS::DroneScanner>(dev)); /* app_10  Drone Scanner */
 }
 
 /**
@@ -62,7 +64,8 @@ static const void* const APP_BUILTIN_ICONS[] = {
     &ui_img_air_mouse_png,   /* app_06  Air Mouse   */
     &ui_img_ble_spam_png,    /* app_07  BLE Spam    */
     &ui_img_badusb_png,      /* app_08  Bad USB     */
-    &ui_img_infrared_png,    /* app_09  Infrared    */
+    &ui_img_infrared_png,    /* app_09  Infrared      */
+    &ui_img_1ghzradio_png,    /* app_10  Drone Scanner (temporary radio icon) */
 };
 static const int APP_BUILTIN_ICONS_COUNT =
     (int)(sizeof(APP_BUILTIN_ICONS) / sizeof(APP_BUILTIN_ICONS[0]));
