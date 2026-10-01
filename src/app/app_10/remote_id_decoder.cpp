@@ -57,6 +57,8 @@ bool RemoteIdDecoder::fromUasData(RemoteIdTrack& out,
         const bool latOk = next.latitude >= -90.0 && next.latitude <= 90.0;
         const bool lonOk = next.longitude >= -180.0 && next.longitude <= 180.0;
         next.hasLocation = latOk && lonOk && !(next.latitude == 0.0 && next.longitude == 0.0);
+        if (next.hasLocation)
+            next.locationSeenMs = seenMs;
         useful = true;
     }
 
