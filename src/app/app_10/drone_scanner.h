@@ -25,7 +25,14 @@ private:
     enum class Page : uint8_t {
         Scan = 0,
         Nearby,
-        Radar
+        Radar,
+        HomeSetup
+    };
+
+    enum class HomeEditField : uint8_t {
+        Latitude = 0,
+        Longitude,
+        Save
     };
 
     DEVICES* _device = nullptr;
@@ -37,6 +44,14 @@ private:
     size_t _selected = 0;
     size_t _lastCount = static_cast<size_t>(-1);
 
+    // Receiver/Home location is stored only on the MeowKit in a dedicated
+    // Preferences namespace. It is never uploaded by Drone Scanner.
+    bool _homeConfigured = false;
+    double _homeLat = 0.0;
+    double _homeLon = 0.0;
+    HomeEditField _homeEditField = HomeEditField::Latitude;
+    uint8_t _homeStepIndex = 0;
+
     void _handleInput();
     void _switchPage(Page page);
 
@@ -44,7 +59,12 @@ private:
     void _drawScan();
     void _drawNearby();
     void _drawRadar();
+    void _drawHomeSetup();
     void _drawFooter(const char* hint);
+
+    void _loadHomeLocation();
+    void _saveHomeLocation();
+    void _adjustHome(int direction);
 
     const char* _stateText() const;
     static const char* _transportText(RemoteIdTransport t);
