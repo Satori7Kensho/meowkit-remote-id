@@ -35,6 +35,16 @@ struct RemoteIdTrack {
 
     double latitude  = 0.0;
     double longitude = 0.0;
+
+    // Previous valid position retained for Home-relative closing/departing
+    // calculations. Remote ID broadcasts arrive frequently enough that two
+    // successive location samples are useful without predicting a flight path.
+    double previousLatitude = 0.0;
+    double previousLongitude = 0.0;
+    uint32_t locationSeenMs = 0;
+    uint32_t previousLocationSeenMs = 0;
+    bool hasPreviousLocation = false;
+
     double operatorLatitude  = 0.0;
     double operatorLongitude = 0.0;
 
@@ -45,6 +55,7 @@ struct RemoteIdTrack {
 
     bool hasLocation         = false;
     bool hasOperatorLocation = false;
+    bool insideHomeZone      = false;
     RemoteIdTransport transport = RemoteIdTransport::Unknown;
 };
 
