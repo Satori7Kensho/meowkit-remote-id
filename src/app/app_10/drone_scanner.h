@@ -72,6 +72,7 @@ private:
     void _adjustAlertRadius(int direction);
 
     static const char* _cardinal(double bearing);
+    void _drawBearingArrow(int cx, int cy, double bearing, uint16_t color);
     static const char* _motionText(const RemoteIdTrack& track,
                                    double homeLat, double homeLon);
     static double _directRangeMeters(double horizontalM, float heightM);
