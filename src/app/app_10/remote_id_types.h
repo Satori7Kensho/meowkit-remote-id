@@ -21,6 +21,12 @@ enum class RemoteIdTransport : uint8_t {
     BleExtended
 };
 
+enum class RemoteIdHeightReference : uint8_t {
+    Unknown = 0,
+    Takeoff,
+    Ground
+};
+
 struct RemoteIdTrack {
     bool     active = false;
     uint32_t lastSeenMs = 0;
@@ -48,12 +54,20 @@ struct RemoteIdTrack {
     double operatorLatitude  = 0.0;
     double operatorLongitude = 0.0;
 
-    float altitudeMslM = 0.0f;
-    float heightAglM   = 0.0f;
+    // Remote ID exposes several vertical fields. Keep them distinct so the UI
+    // never labels WGS84 ellipsoid altitude as MSL or assumes Height is always AGL.
+    float geoAltitudeM  = -1000.0f; // WGS84 HAE
+    float baroAltitudeM = -1000.0f; // pressure altitude, 1013.24 mb reference
+    float heightM       = -1000.0f; // above takeoff or ground per heightReference
+    RemoteIdHeightReference heightReference = RemoteIdHeightReference::Unknown;
+
     float speedMps     = 0.0f;
     float headingDeg   = 0.0f;
 
     bool hasLocation         = false;
+    bool hasGeoAltitude      = false;
+    bool hasBaroAltitude     = false;
+    bool hasHeight           = false;
     bool hasOperatorLocation = false;
     bool insideHomeZone      = false;
     RemoteIdTransport transport = RemoteIdTransport::Unknown;
