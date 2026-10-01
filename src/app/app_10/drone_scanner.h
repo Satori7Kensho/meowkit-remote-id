@@ -26,6 +26,7 @@ private:
         Scan = 0,
         Nearby,
         Radar,
+        Diagnostics,
         HomeSetup
     };
 
@@ -59,6 +60,7 @@ private:
     void _drawScan();
     void _drawNearby();
     void _drawRadar();
+    void _drawDiagnostics();
     void _drawHomeSetup();
     void _drawFooter(const char* hint);
 
