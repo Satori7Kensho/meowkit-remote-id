@@ -6,6 +6,7 @@
 
 #include "remote_id_types.h"
 #include "remote_id_decoder.h"
+#include "remote_id_exporter.h"
 #include "../../bsp/devices.h"
 #include <cstddef>
 #include <freertos/FreeRTOS.h>
@@ -58,6 +59,7 @@ private:
     State _state = State::Idle;
     RemoteIdTrack _tracks[REMOTE_ID_MAX_TRACKS] = {};
     std::size_t _count = 0;
+    RemoteIdExporter _exporter;
 
     QueueHandle_t _frameQueue = nullptr;
     QueueHandle_t _bleQueue = nullptr;
