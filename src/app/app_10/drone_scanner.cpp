@@ -241,6 +241,34 @@ void DroneScanner::_drawScan()
     lcd.setTextColor(FG, BG);
     lcd.drawRightString(buf, 294, 143);
 
+    if (_homeConfigured && _receiver.count() > 0) {
+        const RemoteIdTrack* closest = nullptr;
+        size_t closestIndex = 0;
+        double closestM = 1e30;
+
+        for (size_t i = 0; i < _receiver.count(); ++i) {
+            const RemoteIdTrack* t = _receiver.track(i);
+            if (!t || !t->hasLocation) continue;
+            const double d = _distanceMeters(_homeLat, _homeLon, t->latitude, t->longitude);
+            if (d < closestM) {
+                closestM = d;
+                closest = t;
+                closestIndex = i;
+            }
+        }
+
+        if (closest) {
+            const double b = _bearingDegrees(_homeLat, _homeLon,
+                                             closest->latitude, closest->longitude);
+            lcd.setTextFont(1);
+            lcd.setTextColor(closestM <= _homeAlertRadiusM ? TFT_ORANGE : ACCENT, BG);
+            snprintf(buf, sizeof(buf), "Closest D%u: %.0fm %s | %s",
+                     static_cast<unsigned>(closestIndex + 1), closestM,
+                     _cardinal(b), _motionText(*closest, _homeLat, _homeLon));
+            lcd.drawString(buf, 12, 190);
+        }
+    }
+
     _drawFooter("Hold B: exit");
 }
 
