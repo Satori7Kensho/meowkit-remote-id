@@ -1,5 +1,8 @@
 # MeowKit Drone Scanner roadmap
 
+**App name:** Drone Scanner  
+**Visualization mode:** Drone Radar
+
 This fork adds a passive **Remote ID / Drone Scanner** application to MeowKit.
 
 ## Goal
@@ -19,11 +22,11 @@ or disable aircraft.
 4. **Bluetooth Remote ID** — legacy BLE + BLE 5 extended advertising.
 5. **Multi-drone table** — active tracks, last-seen expiry, transport + RSSI.
 6. **MeowKit UI** — nearby list and per-drone detail view.
-7. **Relative/radar view** — position display when a receiver reference location
-   is available.
+7. **Drone Radar view** — a dedicated radar-style visualization showing relative bearing/range when a receiver reference location is available.
 8. **Optional SD logging** — user-controlled encounter logging.
 9. **Optional alerts** — LED/sound on newly observed Remote ID transmitters.
 10. **Optional PC bridge** — JSON output for tools such as God's Eye View.
+11. **God's Eye View integration** — local Remote ID detections exposed as a distinct Local Drones layer.
 
 ## Architecture
 
