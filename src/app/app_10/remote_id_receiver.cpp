@@ -9,6 +9,7 @@
 #include <BLEDevice.h>
 #include <esp_bt.h>
 #include <cstring>
+#include <cmath>
 #include "../../system/settings_bridge.h"
 
 extern "C" {
@@ -153,6 +154,38 @@ const RemoteIdTrack* RemoteIdReceiver::track(std::size_t index) const
 {
     if (index >= _count || index >= REMOTE_ID_MAX_TRACKS) return nullptr;
     return &_tracks[index];
+}
+
+void RemoteIdReceiver::setHomeZone(bool enabled, double latitude, double longitude, float radiusM)
+{
+    _homeZoneEnabled = enabled;
+    _homeLat = latitude;
+    _homeLon = longitude;
+    _homeZoneRadiusM = radiusM < 25.0f ? 25.0f : radiusM;
+
+    for (size_t i = 0; i < _count; ++i)
+        _tracks[i].insideHomeZone = _isInsideHomeZone(_tracks[i]);
+}
+
+double RemoteIdReceiver::_distanceMeters(double lat1, double lon1, double lat2, double lon2)
+{
+    constexpr double R = 6371000.0;
+    constexpr double DEG = 0.017453292519943295769;
+    const double p1 = lat1 * DEG;
+    const double p2 = lat2 * DEG;
+    const double dp = (lat2 - lat1) * DEG;
+    const double dl = (lon2 - lon1) * DEG;
+    const double a = std::sin(dp / 2.0) * std::sin(dp / 2.0) +
+                     std::cos(p1) * std::cos(p2) *
+                     std::sin(dl / 2.0) * std::sin(dl / 2.0);
+    return R * 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
+}
+
+bool RemoteIdReceiver::_isInsideHomeZone(const RemoteIdTrack& track) const
+{
+    if (!_homeZoneEnabled || !track.hasLocation) return false;
+    return _distanceMeters(_homeLat, _homeLon, track.latitude, track.longitude)
+           <= static_cast<double>(_homeZoneRadiusM);
 }
 
 void RemoteIdReceiver::_promiscuousCallback(void* buffer, wifi_promiscuous_pkt_type_t type)
@@ -493,6 +526,11 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
             current.hasOperatorLocation = true;
         }
 
+        const bool wasInside = current.insideHomeZone;
+        current.insideHomeZone = _isInsideHomeZone(current);
+        if (!wasInside && current.insideHomeZone)
+            _triggerHomeZoneAlert();
+
         current.lastExportMs = previousExport;
         current.lastLogMs = previousLog;
 
@@ -510,8 +548,10 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
 
     if (_count < REMOTE_ID_MAX_TRACKS) {
         _tracks[_count] = incoming;
+        _tracks[_count].insideHomeZone = _isInsideHomeZone(_tracks[_count]);
         ++_sessionUniqueDrones;
-        _triggerNewDroneAlert();
+        if (_tracks[_count].insideHomeZone) _triggerHomeZoneAlert();
+        else _triggerNewDroneAlert();
         _exporter.emitJson(_tracks[_count], true);
         _exporter.logCsv(_tracks[_count], true);
         _tracks[_count].lastExportMs = _tracks[_count].lastSeenMs;
@@ -527,8 +567,10 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
             oldest = i;
     }
     _tracks[oldest] = incoming;
+    _tracks[oldest].insideHomeZone = _isInsideHomeZone(_tracks[oldest]);
     ++_sessionUniqueDrones;
-    _triggerNewDroneAlert();
+    if (_tracks[oldest].insideHomeZone) _triggerHomeZoneAlert();
+    else _triggerNewDroneAlert();
     _exporter.emitJson(_tracks[oldest], true);
     _exporter.logCsv(_tracks[oldest], true);
     _tracks[oldest].lastExportMs = _tracks[oldest].lastSeenMs;
@@ -543,6 +585,16 @@ void RemoteIdReceiver::_triggerNewDroneAlert()
     _device->led.setEffect(WS2812B_Class::PULSE, WS2812B_Class::GREEN, 2.0f);
     _alertActive = true;
     _alertUntilMs = millis() + 1400u;
+}
+
+void RemoteIdReceiver::_triggerHomeZoneAlert()
+{
+    if (!_device) return;
+
+    _device->led.setBrightness(220);
+    _device->led.setEffect(WS2812B_Class::BLINK_FAST, WS2812B_Class::ORANGE, 1.0f);
+    _alertActive = true;
+    _alertUntilMs = millis() + 2200u;
 }
 
 void RemoteIdReceiver::_updateAlert(uint32_t nowMs)
