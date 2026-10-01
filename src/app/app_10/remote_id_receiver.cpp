@@ -218,7 +218,38 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
     }
 
     if (found < _count) {
-        _tracks[found] = incoming;
+        RemoteIdTrack& current = _tracks[found];
+
+        // Remote ID over BLE 4.x often rotates one message type at a time.
+        // Merge newly received fields instead of replacing the whole track so
+        // Basic ID, Location, System and Operator ID accumulate over time.
+        current.active = true;
+        current.lastSeenMs = incoming.lastSeenMs;
+        current.rssi = incoming.rssi;
+        current.transport = incoming.transport;
+        std::memcpy(current.mac, incoming.mac, sizeof(current.mac));
+
+        if (incoming.uasId[0])
+            std::strncpy(current.uasId, incoming.uasId, REMOTE_ID_ID_LEN - 1);
+        if (incoming.operatorId[0])
+            std::strncpy(current.operatorId, incoming.operatorId, REMOTE_ID_ID_LEN - 1);
+
+        if (incoming.hasLocation) {
+            current.latitude = incoming.latitude;
+            current.longitude = incoming.longitude;
+            current.altitudeMslM = incoming.altitudeMslM;
+            current.heightAglM = incoming.heightAglM;
+            current.speedMps = incoming.speedMps;
+            current.headingDeg = incoming.headingDeg;
+            current.hasLocation = true;
+        }
+
+        if (incoming.hasOperatorLocation) {
+            current.operatorLatitude = incoming.operatorLatitude;
+            current.operatorLongitude = incoming.operatorLongitude;
+            current.hasOperatorLocation = true;
+        }
+
         return;
     }
 
