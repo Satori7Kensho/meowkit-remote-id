@@ -65,6 +65,13 @@ private:
     QueueHandle_t _bleQueue = nullptr;
     bool _bleInited = false;
     bool _restoreConnection = false;
+
+    bool _alertActive = false;
+    uint32_t _alertUntilMs = 0;
+    int _savedLedBrightness = 30;
+    uint32_t _savedLedColor = 0xFFFFFF;
+    int _savedLedEffect = 1;
+
     uint8_t _channel = 1;
     uint32_t _lastChannelHopMs = 0;
 
@@ -82,6 +89,9 @@ private:
     bool _decodeBeacon(const RawFrame& frame, RemoteIdTrack& out);
     bool _decodeNan(const RawFrame& frame, RemoteIdTrack& out);
     void _mergeTrack(const RemoteIdTrack& incoming);
+    void _triggerNewDroneAlert();
+    void _updateAlert(uint32_t nowMs);
+    void _restoreLed();
     void _expireTracks(uint32_t nowMs);
     void _hopChannel(uint32_t nowMs);
 };
