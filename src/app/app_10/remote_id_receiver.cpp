@@ -6,6 +6,8 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <BLEDevice.h>
+#include <esp_bt.h>
 #include <cstring>
 
 extern "C" {
@@ -29,7 +31,12 @@ bool RemoteIdReceiver::begin(DEVICES* device)
     for (auto& t : _tracks) t = RemoteIdTrack{};
 
     _frameQueue = xQueueCreate(RAW_QUEUE_LEN, sizeof(RawFrame));
-    if (!_frameQueue) {
+    _bleQueue = xQueueCreate(RAW_QUEUE_LEN, sizeof(BleFrame));
+    if (!_frameQueue || !_bleQueue) {
+        if (_frameQueue) vQueueDelete(_frameQueue);
+        if (_bleQueue) vQueueDelete(_bleQueue);
+        _frameQueue = nullptr;
+        _bleQueue = nullptr;
         _state = State::Error;
         return false;
     }
@@ -49,9 +56,15 @@ bool RemoteIdReceiver::begin(DEVICES* device)
         esp_wifi_set_promiscuous(true) != ESP_OK) {
         s_active = nullptr;
         vQueueDelete(_frameQueue);
+        vQueueDelete(_bleQueue);
         _frameQueue = nullptr;
+        _bleQueue = nullptr;
         _state = State::Error;
         return false;
+    }
+
+    if (!_startBle()) {
+        Serial.println("[DroneScanner] BLE Remote ID unavailable; continuing with Wi-Fi");
     }
 
     _channel = 1;
@@ -73,7 +86,14 @@ void RemoteIdReceiver::update()
     int processed = 0;
     while (_frameQueue && xQueueReceive(_frameQueue, &frame, 0) == pdTRUE) {
         _processFrame(frame);
-        if (++processed >= 8) break; // keep UI responsive under heavy RF traffic
+        if (++processed >= 8) break;
+    }
+
+    BleFrame ble{};
+    processed = 0;
+    while (_bleQueue && xQueueReceive(_bleQueue, &ble, 0) == pdTRUE) {
+        _processBleFrame(ble);
+        if (++processed >= 8) break;
     }
 
     _expireTracks(now);
@@ -88,10 +108,15 @@ void RemoteIdReceiver::end()
 
     esp_wifi_set_promiscuous(false);
     esp_wifi_set_promiscuous_rx_cb(nullptr);
+    _stopBle();
 
     if (_frameQueue) {
         vQueueDelete(_frameQueue);
         _frameQueue = nullptr;
+    }
+    if (_bleQueue) {
+        vQueueDelete(_bleQueue);
+        _bleQueue = nullptr;
     }
 
     if (_device) {
@@ -134,6 +159,184 @@ void RemoteIdReceiver::_promiscuousCallback(void* buffer, wifi_promiscuous_pkt_t
     // Non-blocking by design. Dropping a packet is preferable to blocking the
     // Wi-Fi driver task; Remote ID broadcasts repeat frequently.
     xQueueSend(s_active->_frameQueue, &out, 0);
+}
+
+bool RemoteIdReceiver::_startBle()
+{
+    if (!_bleQueue) return false;
+
+    try {
+        BLEDevice::deinit(false);
+    } catch (...) {}
+    delay(20);
+
+    BLEDevice::init("");
+
+    if (esp_ble_gap_register_callback(&_bleGapCallback) != ESP_OK) {
+        try { BLEDevice::deinit(false); } catch (...) {}
+        return false;
+    }
+
+    static esp_ble_scan_params_t params = {};
+    params.scan_type = BLE_SCAN_TYPE_PASSIVE;
+    params.own_addr_type = BLE_ADDR_TYPE_PUBLIC;
+    params.scan_filter_policy = BLE_SCAN_FILTER_ALLOW_ALL;
+    params.scan_interval = 160; // 100 ms
+    params.scan_window = 80;    // 50 ms
+    params.scan_duplicate = BLE_SCAN_DUPLICATE_DISABLE;
+
+    if (esp_ble_gap_set_scan_params(&params) != ESP_OK) {
+        try { BLEDevice::deinit(false); } catch (...) {}
+        return false;
+    }
+
+    // Start callback will fire asynchronously after parameters are accepted.
+    _bleInited = true;
+    return true;
+}
+
+void RemoteIdReceiver::_stopBle()
+{
+    if (!_bleInited) return;
+
+    esp_ble_gap_stop_scanning();
+#if defined(CONFIG_BT_BLE_50_FEATURES_SUPPORTED) && CONFIG_BT_BLE_50_FEATURES_SUPPORTED
+    esp_ble_gap_stop_ext_scan();
+#endif
+    delay(20);
+
+    try { BLEDevice::deinit(false); } catch (...) {}
+    _bleInited = false;
+}
+
+void RemoteIdReceiver::_bleGapCallback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param)
+{
+    if (!s_active || !s_active->_bleQueue || !param) return;
+
+    if (event == ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT) {
+        if (param->scan_param_cmpl.status == ESP_BT_STATUS_SUCCESS)
+            esp_ble_gap_start_scanning(0);
+        return;
+    }
+
+    if (event == ESP_GAP_BLE_SCAN_RESULT_EVT &&
+        param->scan_rst.search_evt == ESP_GAP_SEARCH_INQ_RES_EVT) {
+        const uint8_t* msg = nullptr;
+        size_t msgLen = 0;
+        const uint8_t* adv = param->scan_rst.ble_adv;
+        const size_t advLen = param->scan_rst.adv_data_len;
+
+        if (!_extractBleRemoteId(adv, advLen, msg, msgLen)) return;
+        if (!msg || msgLen == 0 || msgLen > sizeof(BleFrame::bytes)) return;
+
+        BleFrame out{};
+        out.length = static_cast<uint16_t>(msgLen);
+        out.rssi = param->scan_rst.rssi;
+        out.extended = false;
+        std::memcpy(out.mac, param->scan_rst.bda, 6);
+        std::memcpy(out.bytes, msg, msgLen);
+        xQueueSend(s_active->_bleQueue, &out, 0);
+        return;
+    }
+
+#if defined(CONFIG_BT_BLE_50_FEATURES_SUPPORTED) && CONFIG_BT_BLE_50_FEATURES_SUPPORTED
+    if (event == ESP_GAP_BLE_EXT_ADV_REPORT_EVT) {
+        const auto& rep = param->ext_adv_report.params;
+        const uint8_t* msg = nullptr;
+        size_t msgLen = 0;
+
+        if (!_extractBleRemoteId(rep.adv_data, rep.adv_data_len, msg, msgLen)) return;
+        if (!msg || msgLen == 0 || msgLen > sizeof(BleFrame::bytes)) return;
+
+        BleFrame out{};
+        out.length = static_cast<uint16_t>(msgLen);
+        out.rssi = rep.rssi;
+        out.extended = ((rep.event_type & 0x10) == 0);
+        std::memcpy(out.mac, rep.addr, 6);
+        std::memcpy(out.bytes, msg, msgLen);
+        xQueueSend(s_active->_bleQueue, &out, 0);
+    }
+#endif
+}
+
+bool RemoteIdReceiver::_extractBleRemoteId(const uint8_t* adv, size_t advLen,
+                                           const uint8_t*& msg, size_t& msgLen)
+{
+    msg = nullptr;
+    msgLen = 0;
+    if (!adv || advLen < 6) return false;
+
+    size_t offset = 0;
+    while (offset + 1 < advLen) {
+        const uint8_t fieldLen = adv[offset];
+        if (fieldLen == 0) break;
+
+        const size_t end = offset + 1u + fieldLen;
+        if (end > advLen) break;
+
+        const uint8_t type = adv[offset + 1];
+
+        // ASTM Remote ID service data: UUID 0xFFFA, application code 0x0D,
+        // message counter, then one or more OpenDroneID messages.
+        if (type == 0x16 && fieldLen >= 5) {
+            const uint16_t uuid =
+                static_cast<uint16_t>(adv[offset + 2]) |
+                (static_cast<uint16_t>(adv[offset + 3]) << 8);
+
+            if (uuid == 0xFFFA && adv[offset + 4] == 0x0D) {
+                msg = &adv[offset + 6];
+                msgLen = fieldLen - 5;
+                return msgLen > 0;
+            }
+        }
+
+        // Older draft-format transmitters used manufacturer-specific data
+        // with the same application code/message counter convention.
+        if (type == 0xFF && fieldLen >= 5) {
+            const uint16_t company =
+                static_cast<uint16_t>(adv[offset + 2]) |
+                (static_cast<uint16_t>(adv[offset + 3]) << 8);
+
+            if (company == 0x0200 && adv[offset + 4] == 0x0D) {
+                msg = &adv[offset + 6];
+                msgLen = fieldLen - 5;
+                return msgLen > 0;
+            }
+        }
+
+        offset = end;
+    }
+
+    return false;
+}
+
+void RemoteIdReceiver::_processBleFrame(const BleFrame& frame)
+{
+    RemoteIdTrack decoded{};
+    const RemoteIdTransport transport =
+        frame.extended ? RemoteIdTransport::BleExtended
+                       : RemoteIdTransport::BleLegacy;
+
+    bool ok = false;
+
+    // BLE 4.x commonly rotates one 25-byte message at a time. BLE 5 may carry
+    // larger message packs. Try the format implied by the size, with fallback.
+    if (frame.length == ODID_MESSAGE_SIZE) {
+        ok = RemoteIdDecoder::decodeSingleMessage(
+            decoded, frame.bytes, frame.length, frame.mac, frame.rssi,
+            transport, millis());
+    } else {
+        ok = RemoteIdDecoder::decodeMessagePack(
+            decoded, frame.bytes, frame.length, frame.mac, frame.rssi,
+            transport, millis());
+        if (!ok && frame.length >= ODID_MESSAGE_SIZE) {
+            ok = RemoteIdDecoder::decodeSingleMessage(
+                decoded, frame.bytes, ODID_MESSAGE_SIZE, frame.mac, frame.rssi,
+                transport, millis());
+        }
+    }
+
+    if (ok) _mergeTrack(decoded);
 }
 
 void RemoteIdReceiver::_processFrame(const RawFrame& frame)
