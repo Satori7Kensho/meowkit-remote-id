@@ -263,9 +263,21 @@ void DroneScanner::_drawScan()
                                              closest->latitude, closest->longitude);
             lcd.setTextFont(1);
             lcd.setTextColor(closestM <= _homeAlertRadiusM ? TFT_ORANGE : ACCENT, BG);
-            snprintf(buf, sizeof(buf), "Closest D%u: %.0fm %s | %s",
-                     static_cast<unsigned>(closestIndex + 1), closestM,
-                     _cardinal(b), _motionText(*closest, _homeLat, _homeLon));
+            if (closest->hasHeight) {
+                snprintf(buf, sizeof(buf), "D%u %.0fm %s | H%.0fm | %s",
+                         static_cast<unsigned>(closestIndex + 1), closestM,
+                         _cardinal(b), closest->heightM,
+                         _motionText(*closest, _homeLat, _homeLon));
+            } else if (closest->hasGeoAltitude) {
+                snprintf(buf, sizeof(buf), "D%u %.0fm %s | ALT%.0fm | %s",
+                         static_cast<unsigned>(closestIndex + 1), closestM,
+                         _cardinal(b), closest->geoAltitudeM,
+                         _motionText(*closest, _homeLat, _homeLon));
+            } else {
+                snprintf(buf, sizeof(buf), "D%u %.0fm %s | %s",
+                         static_cast<unsigned>(closestIndex + 1), closestM,
+                         _cardinal(b), _motionText(*closest, _homeLat, _homeLon));
+            }
             lcd.drawString(buf, 12, 190);
         }
     }
@@ -315,14 +327,33 @@ void DroneScanner::_drawNearby()
     lcd.drawString(buf, 12, 88);
 
     if (t->hasLocation) {
-        snprintf(buf, sizeof(buf), "ALT %.0fm   SPD %.1fm/s   HDG %.0f",
-                 t->altitudeMslM, t->speedMps, t->headingDeg);
-        lcd.drawString(buf, 12, 108);
-
         lcd.setTextFont(1);
+        lcd.setTextColor(FG, BG);
+
+        if (t->hasHeight) {
+            const char* ref =
+                t->heightReference == RemoteIdHeightReference::Ground ? "AGL" : "ATO";
+            snprintf(buf, sizeof(buf), "HEIGHT %.0fm %s   SPD %.1fm/s",
+                     t->heightM, ref, t->speedMps);
+        } else {
+            snprintf(buf, sizeof(buf), "HEIGHT --   SPD %.1fm/s", t->speedMps);
+        }
+        lcd.drawString(buf, 12, 106);
+
+        if (t->hasGeoAltitude) {
+            snprintf(buf, sizeof(buf), "GEO ALT %.0fm HAE   HDG %.0f",
+                     t->geoAltitudeM, t->headingDeg);
+        } else if (t->hasBaroAltitude) {
+            snprintf(buf, sizeof(buf), "BARO ALT %.0fm   HDG %.0f",
+                     t->baroAltitudeM, t->headingDeg);
+        } else {
+            snprintf(buf, sizeof(buf), "ALT --   HDG %.0f", t->headingDeg);
+        }
         lcd.setTextColor(DIM, BG);
+        lcd.drawString(buf, 12, 122);
+
         snprintf(buf, sizeof(buf), "%.6f, %.6f", t->latitude, t->longitude);
-        lcd.drawString(buf, 12, 132);
+        lcd.drawString(buf, 12, 138);
 
         if (_homeConfigured) {
             const double d = _distanceMeters(_homeLat, _homeLon, t->latitude, t->longitude);
@@ -332,22 +363,28 @@ void DroneScanner::_drawNearby()
             lcd.setTextColor(ACCENT, BG);
             snprintf(buf, sizeof(buf), "HOME %.0fm  %s  BRG %.0f",
                      d, _cardinal(b), b);
-            lcd.drawString(buf, 12, 151);
+            lcd.drawString(buf, 12, 154);
 
             lcd.setTextFont(1);
             lcd.setTextColor(FG, BG);
 
-            if (t->heightAglM > 0.0f && t->heightAglM < 5000.0f) {
-                const double direct = _directRangeMeters(d, t->heightAglM);
-                snprintf(buf, sizeof(buf), "Direct range ~%.0fm (RID height)", direct);
-                lcd.drawString(buf, 12, 176);
+            if (t->hasHeight && t->heightM >= 0.0f && t->heightM < 5000.0f) {
+                const double direct = _directRangeMeters(d, t->heightM);
+                snprintf(buf, sizeof(buf), "Direct range ~%.0fm | %s",
+                         direct, _motionText(*t, _homeLat, _homeLon));
+            } else {
+                snprintf(buf, sizeof(buf), "%s",
+                         _motionText(*t, _homeLat, _homeLon));
             }
+            lcd.drawString(buf, 12, 180);
 
-            snprintf(buf, sizeof(buf), "%s%s",
-                     d <= 100.0 ? "OVERHEAD VICINITY  |  " : "",
-                     _motionText(*t, _homeLat, _homeLon));
-            lcd.setTextColor(d <= _homeAlertRadiusM ? TFT_ORANGE : DIM, BG);
-            lcd.drawString(buf, 12, 194);
+            if (d <= 100.0) {
+                lcd.setTextColor(TFT_ORANGE, BG);
+                lcd.drawString("OVERHEAD VICINITY", 12, 196);
+            } else if (d <= _homeAlertRadiusM) {
+                lcd.setTextColor(TFT_ORANGE, BG);
+                lcd.drawString("INSIDE HOME ALERT ZONE", 12, 196);
+            }
         }
     } else {
         lcd.drawString("Position not yet received", 12, 118);
