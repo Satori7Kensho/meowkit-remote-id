@@ -36,6 +36,7 @@ void DroneScanner::onOpen()
     _loadHomeLocation();
 
     _receiver.begin(_device);
+    _receiver.setHomeZone(_homeConfigured, _homeLat, _homeLon, _homeAlertRadiusM);
     _drawScan();
 }
 
@@ -98,14 +99,16 @@ void DroneScanner::_handleInput()
 
         if (_homeEditField != HomeEditField::Save) {
             if (_device->button.Left.pressed()) {
-                _adjustHome(-1);
+                if (_homeEditField == HomeEditField::AlertRadius) _adjustAlertRadius(-1);
+                else _adjustHome(-1);
                 _drawHomeSetup();
             }
             if (_device->button.Right.pressed()) {
-                _adjustHome(+1);
+                if (_homeEditField == HomeEditField::AlertRadius) _adjustAlertRadius(+1);
+                else _adjustHome(+1);
                 _drawHomeSetup();
             }
-            if (_device->button.A.pressed()) {
+            if (_device->button.A.pressed() && _homeEditField != HomeEditField::AlertRadius) {
                 _homeStepIndex = (_homeStepIndex + 1) % 5;
                 _drawHomeSetup();
             }
@@ -283,21 +286,38 @@ void DroneScanner::_drawNearby()
     lcd.drawString(buf, 12, 88);
 
     if (t->hasLocation) {
-        snprintf(buf, sizeof(buf), "LAT   %.6f", t->latitude);
-        lcd.drawString(buf, 12, 110);
-        snprintf(buf, sizeof(buf), "LON   %.6f", t->longitude);
-        lcd.drawString(buf, 12, 130);
-        snprintf(buf, sizeof(buf), "ALT   %.1f m", t->altitudeMslM);
-        lcd.drawString(buf, 12, 150);
-        snprintf(buf, sizeof(buf), "SPD   %.1f m/s   HDG %.0f", t->speedMps, t->headingDeg);
-        lcd.drawString(buf, 12, 170);
+        snprintf(buf, sizeof(buf), "ALT %.0fm   SPD %.1fm/s   HDG %.0f",
+                 t->altitudeMslM, t->speedMps, t->headingDeg);
+        lcd.drawString(buf, 12, 108);
+
+        lcd.setTextFont(1);
+        lcd.setTextColor(DIM, BG);
+        snprintf(buf, sizeof(buf), "%.6f, %.6f", t->latitude, t->longitude);
+        lcd.drawString(buf, 12, 132);
 
         if (_homeConfigured) {
             const double d = _distanceMeters(_homeLat, _homeLon, t->latitude, t->longitude);
             const double b = _bearingDegrees(_homeLat, _homeLon, t->latitude, t->longitude);
-            snprintf(buf, sizeof(buf), "HOME  %.0f m  BRG %.0f", d, b);
-            lcd.setTextFont(1);
+
+            lcd.setTextFont(2);
             lcd.setTextColor(ACCENT, BG);
+            snprintf(buf, sizeof(buf), "HOME %.0fm  %s  BRG %.0f",
+                     d, _cardinal(b), b);
+            lcd.drawString(buf, 12, 151);
+
+            lcd.setTextFont(1);
+            lcd.setTextColor(FG, BG);
+
+            if (t->heightAglM > 0.0f && t->heightAglM < 5000.0f) {
+                const double direct = _directRangeMeters(d, t->heightAglM);
+                snprintf(buf, sizeof(buf), "Direct range ~%.0fm (RID height)", direct);
+                lcd.drawString(buf, 12, 176);
+            }
+
+            snprintf(buf, sizeof(buf), "%s%s",
+                     d <= 100.0 ? "OVERHEAD VICINITY  |  " : "",
+                     _motionText(*t, _homeLat, _homeLon));
+            lcd.setTextColor(d <= _homeAlertRadiusM ? TFT_ORANGE : DIM, BG);
             lcd.drawString(buf, 12, 194);
         }
     } else {
@@ -313,99 +333,127 @@ void DroneScanner::_drawRadar()
     auto& lcd = _device->Lcd;
 
     const int cx = 160;
-    const int cy = 124;
-    const int r1 = 25;
-    const int r2 = 50;
-    const int r3 = 76;
+    const int cy = 123;
+    const int outerPx = 73;
 
-    lcd.drawCircle(cx, cy, r1, GRID);
-    lcd.drawCircle(cx, cy, r2, GRID);
-    lcd.drawCircle(cx, cy, r3, ACCENT);
-    lcd.drawFastHLine(cx - r3, cy, r3 * 2, GRID);
-    lcd.drawFastVLine(cx, cy - r3, r3 * 2, GRID);
-    lcd.fillCircle(cx, cy, 3, FG);
+    double farthest = 0.0;
+    for (size_t i = 0; i < _receiver.count(); ++i) {
+        const RemoteIdTrack* t = _receiver.track(i);
+        if (!t || !t->hasLocation) continue;
+
+        double oLat = 0.0, oLon = 0.0;
+        bool haveOrigin = false;
+        if (_homeConfigured) {
+            oLat = _homeLat; oLon = _homeLon; haveOrigin = true;
+        } else if (t->hasOperatorLocation) {
+            oLat = t->operatorLatitude; oLon = t->operatorLongitude; haveOrigin = true;
+        }
+        if (!haveOrigin) continue;
+
+        const double d = _distanceMeters(oLat, oLon, t->latitude, t->longitude);
+        if (d > farthest) farthest = d;
+    }
+
+    // Stable, human-friendly radar scales rather than a continuously resizing plot.
+    static const double SCALES[] = {100, 250, 500, 1000, 2000, 5000, 10000};
+    double outerM = 100.0;
+    const double needed = std::max(farthest * 1.15,
+                                   _homeConfigured ? static_cast<double>(_homeAlertRadiusM) * 1.15 : 0.0);
+    for (double s : SCALES) {
+        outerM = s;
+        if (s >= needed) break;
+    }
+
+    // Three distance rings plus compass axes.
+    lcd.drawCircle(cx, cy, outerPx / 3, GRID);
+    lcd.drawCircle(cx, cy, (outerPx * 2) / 3, GRID);
+    lcd.drawCircle(cx, cy, outerPx, ACCENT);
+    lcd.drawFastHLine(cx - outerPx, cy, outerPx * 2, GRID);
+    lcd.drawFastVLine(cx, cy - outerPx, outerPx * 2, GRID);
 
     lcd.setTextFont(1);
     lcd.setTextColor(DIM, BG);
+    lcd.drawCentreString("N", cx, 38);
+    lcd.drawCentreString("S", cx, 198);
+    lcd.drawString("W", 75, cy - 4);
+    lcd.drawRightString("E", 245, cy - 4);
+
+    char ring[20];
+    snprintf(ring, sizeof(ring), "%.0fm", outerM / 3.0);
+    lcd.drawString(ring, cx + 2, cy - outerPx / 3 - 7);
+    snprintf(ring, sizeof(ring), "%.0fm", outerM * 2.0 / 3.0);
+    lcd.drawString(ring, cx + 2, cy - (outerPx * 2) / 3 - 7);
+    snprintf(ring, sizeof(ring), "%.0fm", outerM);
+    lcd.drawString(ring, cx + 2, cy - outerPx - 7);
+
+    if (_homeConfigured && _homeAlertRadiusM < outerM) {
+        const int alertPx = std::max(4, static_cast<int>(
+            (_homeAlertRadiusM / outerM) * static_cast<double>(outerPx)));
+        lcd.drawCircle(cx, cy, alertPx, TFT_ORANGE);
+    }
+
+    lcd.fillCircle(cx, cy, 3, FG);
+    lcd.setTextColor(_homeConfigured ? ACCENT : DIM, BG);
     lcd.drawCentreString(_homeConfigured ? "HOME" : "RID ORIGIN", cx, cy + 4);
 
     bool plotted = false;
-    double maxDistance = 1.0;
 
     for (size_t i = 0; i < _receiver.count(); ++i) {
         const RemoteIdTrack* t = _receiver.track(i);
         if (!t || !t->hasLocation) continue;
 
-        double originLat = 0.0;
-        double originLon = 0.0;
+        double oLat = 0.0, oLon = 0.0;
         bool haveOrigin = false;
-
         if (_homeConfigured) {
-            originLat = _homeLat;
-            originLon = _homeLon;
-            haveOrigin = true;
+            oLat = _homeLat; oLon = _homeLon; haveOrigin = true;
         } else if (t->hasOperatorLocation) {
-            originLat = t->operatorLatitude;
-            originLon = t->operatorLongitude;
-            haveOrigin = true;
+            oLat = t->operatorLatitude; oLon = t->operatorLongitude; haveOrigin = true;
         }
-
         if (!haveOrigin) continue;
 
-        const double d = _distanceMeters(
-            originLat, originLon, t->latitude, t->longitude);
-        if (d > maxDistance) maxDistance = d;
-    }
-
-    maxDistance *= 1.2;
-    if (maxDistance < 50.0) maxDistance = 50.0;
-
-    for (size_t i = 0; i < _receiver.count(); ++i) {
-        const RemoteIdTrack* t = _receiver.track(i);
-        if (!t || !t->hasLocation) continue;
-
-        double originLat = 0.0;
-        double originLon = 0.0;
-        bool haveOrigin = false;
-
-        if (_homeConfigured) {
-            originLat = _homeLat;
-            originLon = _homeLon;
-            haveOrigin = true;
-        } else if (t->hasOperatorLocation) {
-            originLat = t->operatorLatitude;
-            originLon = t->operatorLongitude;
-            haveOrigin = true;
-        }
-
-        if (!haveOrigin) continue;
-
-        const double d = _distanceMeters(
-            originLat, originLon, t->latitude, t->longitude);
-        const double bearing = _bearingDegrees(
-            originLat, originLon, t->latitude, t->longitude);
-
+        const double d = _distanceMeters(oLat, oLon, t->latitude, t->longitude);
+        const double bearing = _bearingDegrees(oLat, oLon, t->latitude, t->longitude);
         const double angle = (bearing - 90.0) * M_PI / 180.0;
-        const double radius = (d / maxDistance) * static_cast<double>(r3 - 7);
+        const double radius = std::min(
+            static_cast<double>(outerPx - 6),
+            (d / outerM) * static_cast<double>(outerPx - 6));
 
         const int x = cx + static_cast<int>(std::cos(angle) * radius);
         const int y = cy + static_cast<int>(std::sin(angle) * radius);
 
-        lcd.fillCircle(x, y, 4, ACCENT);
+        const uint16_t markerColor =
+            (_homeConfigured && d <= _homeAlertRadiusM) ? TFT_ORANGE : ACCENT;
+
+        lcd.fillCircle(x, y, 4, markerColor);
         lcd.drawCircle(x, y, 5, FG);
+
+        // Heading tick: the dot tells where it is; this line tells where it is moving.
+        const double hdgAngle = (static_cast<double>(t->headingDeg) - 90.0) * M_PI / 180.0;
+        const int hx = x + static_cast<int>(std::cos(hdgAngle) * 11.0);
+        const int hy = y + static_cast<int>(std::sin(hdgAngle) * 11.0);
+        lcd.drawLine(x, y, hx, hy, FG);
+
+        char label[8];
+        snprintf(label, sizeof(label), "D%u", static_cast<unsigned>(i + 1));
+        lcd.setTextColor(FG, BG);
+        lcd.drawString(label, x + 6, y - 5);
+
         plotted = true;
     }
 
     lcd.setTextFont(1);
-    lcd.setTextColor(DIM, BG);
     if (plotted) {
-        char scale[48];
-        snprintf(scale, sizeof(scale), "Outer ring ~ %.0f m", maxDistance);
-        lcd.drawString(scale, 8, 198);
+        char status[64];
+        snprintf(status, sizeof(status), "Outer %.0fm | alert %.0fm",
+                 outerM, _homeConfigured ? _homeAlertRadiusM : 0.0f);
+        lcd.setTextColor(DIM, BG);
+        lcd.drawString(status, 8, 199);
     } else if (_homeConfigured) {
-        lcd.drawCentreString("Home set - waiting for drone position", 160, 198);
+        lcd.setTextColor(DIM, BG);
+        lcd.drawCentreString("Home set - waiting for drone position", 160, 199);
     } else {
-        lcd.drawCentreString("A: set Home for property-relative radar", 160, 198);
+        lcd.setTextColor(DIM, BG);
+        lcd.drawCentreString("A: set Home for property-relative radar", 160, 199);
     }
 
     _drawFooter(_homeConfigured ? "A: edit Home   Hold B: exit"
@@ -480,6 +528,7 @@ void DroneScanner::_loadHomeLocation()
     _homeConfigured = prefs.getBool("home_set", false);
     _homeLat = prefs.getDouble("home_lat", 0.0);
     _homeLon = prefs.getDouble("home_lon", 0.0);
+    _homeAlertRadiusM = prefs.getFloat("alert_m", 250.0f);
     prefs.end();
 
     if (_homeLat < -90.0 || _homeLat > 90.0 ||
@@ -488,6 +537,8 @@ void DroneScanner::_loadHomeLocation()
         _homeLat = 0.0;
         _homeLon = 0.0;
     }
+    if (_homeAlertRadiusM < 25.0f || _homeAlertRadiusM > 5000.0f)
+        _homeAlertRadiusM = 250.0f;
 }
 
 void DroneScanner::_saveHomeLocation()
@@ -502,10 +553,12 @@ void DroneScanner::_saveHomeLocation()
 
     prefs.putDouble("home_lat", _homeLat);
     prefs.putDouble("home_lon", _homeLon);
+    prefs.putFloat("alert_m", _homeAlertRadiusM);
     prefs.putBool("home_set", true);
     prefs.end();
 
     _homeConfigured = true;
+    _receiver.setHomeZone(true, _homeLat, _homeLon, _homeAlertRadiusM);
     Serial.printf("[DroneScanner] Home location saved: %.6f, %.6f\n",
                   _homeLat, _homeLon);
 }
@@ -542,29 +595,86 @@ void DroneScanner::_drawHomeSetup()
 
     const bool latSel = _homeEditField == HomeEditField::Latitude;
     const bool lonSel = _homeEditField == HomeEditField::Longitude;
+    const bool radiusSel = _homeEditField == HomeEditField::AlertRadius;
     const bool saveSel = _homeEditField == HomeEditField::Save;
 
     lcd.setTextFont(2);
     lcd.setTextColor(latSel ? ACCENT : FG, BG);
     snprintf(buf, sizeof(buf), "%c LAT  %.6f", latSel ? '>' : ' ', _homeLat);
-    lcd.drawString(buf, 18, 82);
+    lcd.drawString(buf, 18, 76);
 
     lcd.setTextColor(lonSel ? ACCENT : FG, BG);
     snprintf(buf, sizeof(buf), "%c LON  %.6f", lonSel ? '>' : ' ', _homeLon);
-    lcd.drawString(buf, 18, 108);
+    lcd.drawString(buf, 18, 100);
 
-    lcd.setTextColor(DIM, BG);
-    snprintf(buf, sizeof(buf), "Step: %.4f deg   [A] change", steps[_homeStepIndex]);
-    lcd.drawString(buf, 18, 138);
-
-    lcd.setTextColor(saveSel ? ACCENT : FG, BG);
-    lcd.drawString(saveSel ? "> SAVE HOME LOCATION" : "  SAVE HOME LOCATION", 18, 172);
+    lcd.setTextColor(radiusSel ? TFT_ORANGE : FG, BG);
+    snprintf(buf, sizeof(buf), "%c ALERT RADIUS  %.0f m",
+             radiusSel ? '>' : ' ', _homeAlertRadiusM);
+    lcd.drawString(buf, 18, 124);
 
     lcd.setTextFont(1);
     lcd.setTextColor(DIM, BG);
-    lcd.drawString("Up/Down: field   Left/Right: adjust", 10, 198);
+    snprintf(buf, sizeof(buf), "Coordinate step: %.4f deg", steps[_homeStepIndex]);
+    lcd.drawString(buf, 18, 150);
 
-    _drawFooter(saveSel ? "A: save + return" : "A: change step");
+    lcd.setTextFont(2);
+    lcd.setTextColor(saveSel ? ACCENT : FG, BG);
+    lcd.drawString(saveSel ? "> SAVE HOME + ZONE" : "  SAVE HOME + ZONE", 18, 174);
+
+    lcd.setTextFont(1);
+    lcd.setTextColor(DIM, BG);
+    lcd.drawString("Up/Down field | Left/Right adjust", 10, 198);
+
+    _drawFooter(saveSel ? "A: save + return"
+                        : (radiusSel ? "Left/Right: radius" : "A: coord step"));
+}
+
+void DroneScanner::_adjustAlertRadius(int direction)
+{
+    static const float RADII[] = {50, 100, 250, 500, 1000, 2000, 5000};
+    int nearest = 0;
+    float best = std::fabs(_homeAlertRadiusM - RADII[0]);
+    for (int i = 1; i < 7; ++i) {
+        const float delta = std::fabs(_homeAlertRadiusM - RADII[i]);
+        if (delta < best) { best = delta; nearest = i; }
+    }
+
+    nearest += direction;
+    if (nearest < 0) nearest = 0;
+    if (nearest > 6) nearest = 6;
+    _homeAlertRadiusM = RADII[nearest];
+}
+
+const char* DroneScanner::_cardinal(double bearing)
+{
+    static const char* DIRS[] = {"N","NE","E","SE","S","SW","W","NW"};
+    int idx = static_cast<int>(std::floor((bearing + 22.5) / 45.0)) & 7;
+    return DIRS[idx];
+}
+
+const char* DroneScanner::_motionText(const RemoteIdTrack& track,
+                                     double homeLat, double homeLon)
+{
+    if (!track.hasPreviousLocation || !track.hasLocation)
+        return "TRACKING";
+
+    const double before = _distanceMeters(
+        homeLat, homeLon, track.previousLatitude, track.previousLongitude);
+    const double now = _distanceMeters(
+        homeLat, homeLon, track.latitude, track.longitude);
+    const double delta = now - before;
+
+    // A few metres of dead-band avoids GPS/Remote-ID jitter being described
+    // as meaningful motion toward or away from Home.
+    if (delta < -3.0) return "CLOSING";
+    if (delta >  3.0) return "DEPARTING";
+    return "STEADY";
+}
+
+double DroneScanner::_directRangeMeters(double horizontalM, float heightM)
+{
+    const double h = static_cast<double>(heightM);
+    return std::sqrt(horizontalM * horizontalM + h * h);
 }
 
 double DroneScanner::_distanceMeters(double lat1, double lon1, double lat2, double lon2)
