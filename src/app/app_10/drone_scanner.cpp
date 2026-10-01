@@ -59,8 +59,9 @@ void DroneScanner::onRunning()
     switch (_page) {
     case Page::Scan:      _drawScan(); break;
     case Page::Nearby:    _drawNearby(); break;
-    case Page::Radar:     _drawRadar(); break;
-    case Page::HomeSetup: _drawHomeSetup(); break;
+    case Page::Radar:       _drawRadar(); break;
+    case Page::Diagnostics: _drawDiagnostics(); break;
+    case Page::HomeSetup:   _drawHomeSetup(); break;
     }
 }
 
@@ -116,12 +117,12 @@ void DroneScanner::_handleInput()
     }
 
     if (_device->button.Left.pressed()) {
-        if (_page == Page::Scan) _switchPage(Page::Radar);
+        if (_page == Page::Scan) _switchPage(Page::Diagnostics);
         else _switchPage(static_cast<Page>(static_cast<uint8_t>(_page) - 1));
     }
 
     if (_device->button.Right.pressed()) {
-        if (_page == Page::Radar) _switchPage(Page::Scan);
+        if (_page == Page::Diagnostics) _switchPage(Page::Scan);
         else _switchPage(static_cast<Page>(static_cast<uint8_t>(_page) + 1));
     }
 
@@ -148,10 +149,11 @@ void DroneScanner::_switchPage(Page page)
 {
     _page = page;
     switch (_page) {
-    case Page::Scan:      _drawScan(); break;
-    case Page::Nearby:    _drawNearby(); break;
-    case Page::Radar:     _drawRadar(); break;
-    case Page::HomeSetup: _drawHomeSetup(); break;
+    case Page::Scan:        _drawScan(); break;
+    case Page::Nearby:      _drawNearby(); break;
+    case Page::Radar:       _drawRadar(); break;
+    case Page::Diagnostics: _drawDiagnostics(); break;
+    case Page::HomeSetup:   _drawHomeSetup(); break;
     }
 }
 
@@ -289,6 +291,15 @@ void DroneScanner::_drawNearby()
         lcd.drawString(buf, 12, 150);
         snprintf(buf, sizeof(buf), "SPD   %.1f m/s   HDG %.0f", t->speedMps, t->headingDeg);
         lcd.drawString(buf, 12, 170);
+
+        if (_homeConfigured) {
+            const double d = _distanceMeters(_homeLat, _homeLon, t->latitude, t->longitude);
+            const double b = _bearingDegrees(_homeLat, _homeLon, t->latitude, t->longitude);
+            snprintf(buf, sizeof(buf), "HOME  %.0f m  BRG %.0f", d, b);
+            lcd.setTextFont(1);
+            lcd.setTextColor(ACCENT, BG);
+            lcd.drawString(buf, 12, 194);
+        }
     } else {
         lcd.drawString("Position not yet received", 12, 118);
     }
@@ -399,6 +410,63 @@ void DroneScanner::_drawRadar()
 
     _drawFooter(_homeConfigured ? "A: edit Home   Hold B: exit"
                                 : "A: set Home   Hold B: exit");
+}
+
+void DroneScanner::_drawDiagnostics()
+{
+    _drawFrame("DIAGNOSTICS");
+    auto& lcd = _device->Lcd;
+
+    lcd.setTextFont(2);
+
+    char buf[64];
+
+    lcd.setTextColor(DIM, BG);
+    lcd.drawString("Receiver state", 12, 44);
+    lcd.setTextColor(ACCENT, BG);
+    lcd.drawRightString(_stateText(), 306, 44);
+
+    lcd.setTextColor(DIM, BG);
+    lcd.drawString("Wi-Fi channel", 12, 66);
+    snprintf(buf, sizeof(buf), "%u", static_cast<unsigned>(_receiver.wifiChannel()));
+    lcd.setTextColor(FG, BG);
+    lcd.drawRightString(buf, 306, 66);
+
+    lcd.setTextColor(DIM, BG);
+    lcd.drawString("BLE scanner", 12, 88);
+    lcd.setTextColor(_receiver.bleActive() ? ACCENT : FG, BG);
+    lcd.drawRightString(_receiver.bleActive() ? "ACTIVE" : "OFF", 306, 88);
+
+    lcd.setTextColor(DIM, BG);
+    lcd.drawString("RID messages", 12, 110);
+    snprintf(buf, sizeof(buf), "%lu",
+             static_cast<unsigned long>(_receiver.remoteIdMessages()));
+    lcd.setTextColor(FG, BG);
+    lcd.drawRightString(buf, 306, 110);
+
+    lcd.setTextColor(DIM, BG);
+    lcd.drawString("Wi-Fi / BLE", 12, 132);
+    snprintf(buf, sizeof(buf), "%lu / %lu",
+             static_cast<unsigned long>(_receiver.wifiRemoteIdMessages()),
+             static_cast<unsigned long>(_receiver.bleRemoteIdMessages()));
+    lcd.setTextColor(FG, BG);
+    lcd.drawRightString(buf, 306, 132);
+
+    lcd.setTextColor(DIM, BG);
+    lcd.drawString("Unique this session", 12, 154);
+    snprintf(buf, sizeof(buf), "%lu",
+             static_cast<unsigned long>(_receiver.sessionUniqueDrones()));
+    lcd.setTextColor(FG, BG);
+    lcd.drawRightString(buf, 306, 154);
+
+    lcd.setTextColor(DIM, BG);
+    lcd.drawString("Dropped RF frames", 12, 176);
+    snprintf(buf, sizeof(buf), "%lu",
+             static_cast<unsigned long>(_receiver.droppedFrames()));
+    lcd.setTextColor(FG, BG);
+    lcd.drawRightString(buf, 306, 176);
+
+    _drawFooter("Useful for hardware testing");
 }
 
 void DroneScanner::_loadHomeLocation()
