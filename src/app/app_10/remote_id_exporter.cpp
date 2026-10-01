@@ -41,7 +41,7 @@ void RemoteIdExporter::begin(DEVICES* device)
     if (_sdReady && !SD_MMC.exists(LOG_PATH)) {
         File f = SD_MMC.open(LOG_PATH, FILE_WRITE);
         if (f) {
-            f.println("uptime_ms,event,uas_id,operator_id,transport,rssi,latitude,longitude,altitude_m,height_m,speed_mps,heading_deg,operator_latitude,operator_longitude");
+            f.println("uptime_ms,event,uas_id,operator_id,transport,rssi,latitude,longitude,geo_altitude_m,baro_altitude_m,height_m,height_reference,speed_mps,heading_deg,operator_latitude,operator_longitude");
             f.close();
         }
     }
@@ -99,8 +99,18 @@ void RemoteIdExporter::emitJson(const RemoteIdTrack& t, bool firstSeen)
     if (t.hasLocation) {
         Serial.print(",\"latitude\":"); Serial.print(t.latitude, 7);
         Serial.print(",\"longitude\":"); Serial.print(t.longitude, 7);
-        Serial.print(",\"altitude_m\":"); Serial.print(t.altitudeMslM, 1);
-        Serial.print(",\"height_m\":"); Serial.print(t.heightAglM, 1);
+        if (t.hasGeoAltitude) {
+            Serial.print(",\"geo_altitude_m\":"); Serial.print(t.geoAltitudeM, 1);
+        }
+        if (t.hasBaroAltitude) {
+            Serial.print(",\"baro_altitude_m\":"); Serial.print(t.baroAltitudeM, 1);
+        }
+        if (t.hasHeight) {
+            Serial.print(",\"height_m\":"); Serial.print(t.heightM, 1);
+            Serial.print(",\"height_reference\":\"");
+            Serial.print(t.heightReference == RemoteIdHeightReference::Ground ? "ground" : "takeoff");
+            Serial.print("\"");
+        }
         Serial.print(",\"speed_mps\":"); Serial.print(t.speedMps, 2);
         Serial.print(",\"heading_deg\":"); Serial.print(t.headingDeg, 1);
     }
@@ -133,12 +143,17 @@ void RemoteIdExporter::logCsv(const RemoteIdTrack& t, bool firstSeen)
     if (t.hasLocation) {
         f.print(t.latitude, 7); f.print(',');
         f.print(t.longitude, 7); f.print(',');
-        f.print(t.altitudeMslM, 1); f.print(',');
-        f.print(t.heightAglM, 1); f.print(',');
+        if (t.hasGeoAltitude) f.print(t.geoAltitudeM, 1); f.print(',');
+        if (t.hasBaroAltitude) f.print(t.baroAltitudeM, 1); f.print(',');
+        if (t.hasHeight) f.print(t.heightM, 1); f.print(',');
+        if (t.hasHeight) {
+            f.print(t.heightReference == RemoteIdHeightReference::Ground ? "ground" : "takeoff");
+        }
+        f.print(',');
         f.print(t.speedMps, 2); f.print(',');
         f.print(t.headingDeg, 1); f.print(',');
     } else {
-        f.print(",,,,,,");
+        f.print(",,,,,,,,");
     }
 
     if (t.hasOperatorLocation) {
