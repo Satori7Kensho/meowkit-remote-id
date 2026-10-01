@@ -1,0 +1,9 @@
+{
+  "name": "OpenDroneID",
+  "version": "0.0.0-vendored",
+  "description": "Vendored OpenDroneID Core C decoder for MeowKit Drone Scanner",
+  "license": "Apache-2.0",
+  "build": {
+    "srcDir": "src"
+  }
+}
