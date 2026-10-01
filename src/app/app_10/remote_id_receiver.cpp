@@ -9,6 +9,7 @@
 #include <BLEDevice.h>
 #include <esp_bt.h>
 #include <cstring>
+#include "../../system/settings_bridge.h"
 
 extern "C" {
 #include <opendroneid.h>
@@ -28,6 +29,12 @@ bool RemoteIdReceiver::begin(DEVICES* device)
     _device = device;
     _state = State::Starting;
     _exporter.begin(_device);
+
+    _savedLedBrightness = sys_get_led();
+    _savedLedColor = settings_get_led_color();
+    _savedLedEffect = settings_get_led_effect();
+    _alertActive = false;
+    _alertUntilMs = 0;
     _count = 0;
     for (auto& t : _tracks) t = RemoteIdTrack{};
 
@@ -98,6 +105,7 @@ void RemoteIdReceiver::update()
     }
 
     _expireTracks(now);
+    _updateAlert(now);
     _hopChannel(now);
 }
 
@@ -126,6 +134,7 @@ void RemoteIdReceiver::end()
             _device->wifi.reconnect();
     }
 
+    _restoreLed();
     _exporter.end();
     _restoreConnection = false;
     _device = nullptr;
@@ -478,6 +487,7 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
 
     if (_count < REMOTE_ID_MAX_TRACKS) {
         _tracks[_count] = incoming;
+        _triggerNewDroneAlert();
         _exporter.emitJson(_tracks[_count], true);
         _exporter.logCsv(_tracks[_count], true);
         _tracks[_count].lastExportMs = _tracks[_count].lastSeenMs;
@@ -493,10 +503,48 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
             oldest = i;
     }
     _tracks[oldest] = incoming;
+    _triggerNewDroneAlert();
     _exporter.emitJson(_tracks[oldest], true);
     _exporter.logCsv(_tracks[oldest], true);
     _tracks[oldest].lastExportMs = _tracks[oldest].lastSeenMs;
     _tracks[oldest].lastLogMs = _tracks[oldest].lastSeenMs;
+}
+
+void RemoteIdReceiver::_triggerNewDroneAlert()
+{
+    if (!_device) return;
+
+    _device->led.setBrightness(180);
+    _device->led.setEffect(WS2812B_Class::PULSE, WS2812B_Class::GREEN, 2.0f);
+    _alertActive = true;
+    _alertUntilMs = millis() + 1400u;
+}
+
+void RemoteIdReceiver::_updateAlert(uint32_t nowMs)
+{
+    if (!_device || !_alertActive) return;
+
+    _device->led.update();
+    if ((int32_t)(nowMs - _alertUntilMs) >= 0) {
+        _restoreLed();
+    }
+}
+
+void RemoteIdReceiver::_restoreLed()
+{
+    if (!_device) return;
+
+    _device->led.setBrightness(
+        static_cast<uint8_t>((_savedLedBrightness * 255) / 100));
+
+    const uint8_t r = static_cast<uint8_t>((_savedLedColor >> 16) & 0xFF);
+    const uint8_t g = static_cast<uint8_t>((_savedLedColor >> 8) & 0xFF);
+    const uint8_t b = static_cast<uint8_t>(_savedLedColor & 0xFF);
+    _device->led.setEffect(
+        static_cast<WS2812B_Class::Effect>(_savedLedEffect), r, g, b);
+
+    _alertActive = false;
+    _alertUntilMs = 0;
 }
 
 void RemoteIdReceiver::_expireTracks(uint32_t nowMs)
