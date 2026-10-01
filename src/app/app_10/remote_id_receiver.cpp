@@ -470,12 +470,20 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
         }
 
         if (incoming.hasLocation) {
+            if (current.hasLocation) {
+                current.previousLatitude = current.latitude;
+                current.previousLongitude = current.longitude;
+                current.previousLocationSeenMs = current.locationSeenMs;
+                current.hasPreviousLocation = true;
+            }
+
             current.latitude = incoming.latitude;
             current.longitude = incoming.longitude;
             current.altitudeMslM = incoming.altitudeMslM;
             current.heightAglM = incoming.heightAglM;
             current.speedMps = incoming.speedMps;
             current.headingDeg = incoming.headingDeg;
+            current.locationSeenMs = incoming.locationSeenMs;
             current.hasLocation = true;
         }
 
