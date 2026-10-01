@@ -24,3 +24,15 @@ jobs:
 
       - name: Build firmware
         run: pio run -e esp32s3box
+
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meowkit-drone-scanner-test
+          path: |
+            .pio/build/esp32s3box/firmware.bin
+            .pio/build/esp32s3box/bootloader.bin
+            .pio/build/esp32s3box/partitions.bin
+          if-no-files-found: error
+          retention-days: 14
