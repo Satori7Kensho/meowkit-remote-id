@@ -33,6 +33,7 @@ private:
     enum class HomeEditField : uint8_t {
         Latitude = 0,
         Longitude,
+        AlertRadius,
         Save
     };
 
@@ -52,6 +53,7 @@ private:
     double _homeLon = 0.0;
     HomeEditField _homeEditField = HomeEditField::Latitude;
     uint8_t _homeStepIndex = 0;
+    float _homeAlertRadiusM = 250.0f;
 
     void _handleInput();
     void _switchPage(Page page);
@@ -67,6 +69,12 @@ private:
     void _loadHomeLocation();
     void _saveHomeLocation();
     void _adjustHome(int direction);
+    void _adjustAlertRadius(int direction);
+
+    static const char* _cardinal(double bearing);
+    static const char* _motionText(const RemoteIdTrack& track,
+                                   double homeLat, double homeLon);
+    static double _directRangeMeters(double horizontalM, float heightM);
 
     const char* _stateText() const;
     static const char* _transportText(RemoteIdTransport t);
