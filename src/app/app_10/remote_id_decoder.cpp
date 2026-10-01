@@ -47,12 +47,20 @@ bool RemoteIdDecoder::fromUasData(RemoteIdTrack& out,
     }
 
     if (uas.LocationValid) {
-        next.latitude     = uas.Location.Latitude;
-        next.longitude    = uas.Location.Longitude;
-        next.altitudeMslM = uas.Location.AltitudeGeo;
-        next.heightAglM   = uas.Location.Height;
-        next.speedMps     = uas.Location.SpeedHorizontal;
-        next.headingDeg   = uas.Location.Direction;
+        next.latitude      = uas.Location.Latitude;
+        next.longitude     = uas.Location.Longitude;
+        next.geoAltitudeM  = uas.Location.AltitudeGeo;
+        next.baroAltitudeM = uas.Location.AltitudeBaro;
+        next.heightM       = uas.Location.Height;
+        next.heightReference =
+            (uas.Location.HeightType == ODID_HEIGHT_REF_OVER_GROUND)
+                ? RemoteIdHeightReference::Ground
+                : RemoteIdHeightReference::Takeoff;
+        next.hasGeoAltitude  = next.geoAltitudeM > -999.0f;
+        next.hasBaroAltitude = next.baroAltitudeM > -999.0f;
+        next.hasHeight       = next.heightM > -999.0f;
+        next.speedMps        = uas.Location.SpeedHorizontal;
+        next.headingDeg      = uas.Location.Direction;
 
         const bool latOk = next.latitude >= -90.0 && next.latitude <= 90.0;
         const bool lonOk = next.longitude >= -180.0 && next.longitude <= 180.0;
