@@ -1,16 +1,16 @@
 /**
  * @file remote_id_receiver.h
- * @brief Passive Remote ID receiver facade for the Drone Scanner app.
- *
- * Phase 1 deliberately keeps the radio backend isolated behind this interface.
- * The next implementation phase will add Wi-Fi Beacon/NAN and BLE receivers
- * without coupling ESP-IDF radio state directly into the UI.
+ * @brief Passive Wi-Fi Remote ID receiver for the Drone Scanner app.
  */
 #pragma once
 
 #include "remote_id_types.h"
+#include "remote_id_decoder.h"
 #include "../../bsp/devices.h"
 #include <cstddef>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <esp_wifi.h>
 
 namespace MOONCAKE::APPS
 {
@@ -33,10 +33,37 @@ public:
     const RemoteIdTrack* track(std::size_t index) const;
 
 private:
+    static constexpr size_t RAW_FRAME_MAX = 512;
+    static constexpr size_t RAW_QUEUE_LEN = 12;
+    static constexpr uint32_t TRACK_TTL_MS = 120000;
+    static constexpr uint32_t CHANNEL_DWELL_MS = 280;
+
+    struct RawFrame {
+        uint16_t length = 0;
+        int8_t rssi = 0;
+        uint8_t channel = 0;
+        uint8_t bytes[RAW_FRAME_MAX] = {0};
+    };
+
     DEVICES* _device = nullptr;
     State _state = State::Idle;
     RemoteIdTrack _tracks[REMOTE_ID_MAX_TRACKS] = {};
     std::size_t _count = 0;
+
+    QueueHandle_t _frameQueue = nullptr;
+    bool _restoreConnection = false;
+    uint8_t _channel = 1;
+    uint32_t _lastChannelHopMs = 0;
+
+    static RemoteIdReceiver* s_active;
+    static void _promiscuousCallback(void* buffer, wifi_promiscuous_pkt_type_t type);
+
+    void _processFrame(const RawFrame& frame);
+    bool _decodeBeacon(const RawFrame& frame, RemoteIdTrack& out);
+    bool _decodeNan(const RawFrame& frame, RemoteIdTrack& out);
+    void _mergeTrack(const RemoteIdTrack& incoming);
+    void _expireTracks(uint32_t nowMs);
+    void _hopChannel(uint32_t nowMs);
 };
 
 } // namespace MOONCAKE::APPS
