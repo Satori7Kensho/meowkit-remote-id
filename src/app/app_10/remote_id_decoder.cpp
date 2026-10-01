@@ -96,4 +96,23 @@ bool RemoteIdDecoder::decodeMessagePack(RemoteIdTrack& out,
     return fromUasData(out, uas, mac, rssi, transport, seenMs);
 }
 
+bool RemoteIdDecoder::decodeSingleMessage(RemoteIdTrack& out,
+                                          const uint8_t* bytes,
+                                          size_t length,
+                                          const uint8_t mac[6],
+                                          int8_t rssi,
+                                          RemoteIdTransport transport,
+                                          uint32_t seenMs)
+{
+    if (!bytes || length < ODID_MESSAGE_SIZE) return false;
+
+    ODID_UAS_Data uas{};
+    odid_initUasData(&uas);
+
+    if (decodeOpenDroneID(&uas, bytes) == ODID_MESSAGETYPE_INVALID)
+        return false;
+
+    return fromUasData(out, uas, mac, rssi, transport, seenMs);
+}
+
 } // namespace MOONCAKE::APPS
