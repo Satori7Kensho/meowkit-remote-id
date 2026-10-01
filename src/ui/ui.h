@@ -85,6 +85,7 @@ LV_IMG_DECLARE(ui_img_ble_spam_png);       // App 08 BLE Spam
 LV_IMG_DECLARE(ui_img_wifi_killer_png);    // App 09 (stub)
 LV_IMG_DECLARE(ui_img_badusb_png);         // App 10 BadUSB
 LV_IMG_DECLARE(ui_img_infrared_png);       // App 11 Infrared
+LV_IMG_DECLARE(ui_img_1ghzradio_png);       // Drone Scanner temporary icon
 LV_IMG_DECLARE(ui_img_nfc_png);            // App 12 (stub)
 LV_IMG_DECLARE(ui_img_smarthome_png);      // App 13 (stub)
 LV_IMG_DECLARE(ui_img_webserial_png);      // App 14 (stub)
