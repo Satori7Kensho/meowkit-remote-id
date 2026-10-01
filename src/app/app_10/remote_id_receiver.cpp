@@ -36,6 +36,11 @@ bool RemoteIdReceiver::begin(DEVICES* device)
     _alertActive = false;
     _alertUntilMs = 0;
     _count = 0;
+    _droppedFrames = 0;
+    _ridMessages = 0;
+    _wifiRidMessages = 0;
+    _bleRidMessages = 0;
+    _sessionUniqueDrones = 0;
     for (auto& t : _tracks) t = RemoteIdTrack{};
 
     _frameQueue = xQueueCreate(RAW_QUEUE_LEN, sizeof(RawFrame));
@@ -169,7 +174,8 @@ void RemoteIdReceiver::_promiscuousCallback(void* buffer, wifi_promiscuous_pkt_t
 
     // Non-blocking by design. Dropping a packet is preferable to blocking the
     // Wi-Fi driver task; Remote ID broadcasts repeat frequently.
-    xQueueSend(s_active->_frameQueue, &out, 0);
+    if (xQueueSend(s_active->_frameQueue, &out, 0) != pdTRUE)
+        ++s_active->_droppedFrames;
 }
 
 bool RemoteIdReceiver::_startBle()
@@ -246,7 +252,8 @@ void RemoteIdReceiver::_bleGapCallback(esp_gap_ble_cb_event_t event, esp_ble_gap
         out.extended = false;
         std::memcpy(out.mac, param->scan_rst.bda, 6);
         std::memcpy(out.bytes, msg, msgLen);
-        xQueueSend(s_active->_bleQueue, &out, 0);
+        if (xQueueSend(s_active->_bleQueue, &out, 0) != pdTRUE)
+            ++s_active->_droppedFrames;
         return;
     }
 
@@ -265,7 +272,8 @@ void RemoteIdReceiver::_bleGapCallback(esp_gap_ble_cb_event_t event, esp_ble_gap
         out.extended = ((rep.event_type & 0x10) == 0);
         std::memcpy(out.mac, rep.addr, 6);
         std::memcpy(out.bytes, msg, msgLen);
-        xQueueSend(s_active->_bleQueue, &out, 0);
+        if (xQueueSend(s_active->_bleQueue, &out, 0) != pdTRUE)
+            ++s_active->_droppedFrames;
     }
 #endif
 }
@@ -347,15 +355,22 @@ void RemoteIdReceiver::_processBleFrame(const BleFrame& frame)
         }
     }
 
-    if (ok) _mergeTrack(decoded);
+    if (ok) {
+        ++_ridMessages;
+        ++_bleRidMessages;
+        _mergeTrack(decoded);
+    }
 }
 
 void RemoteIdReceiver::_processFrame(const RawFrame& frame)
 {
     RemoteIdTrack decoded{};
 
-    if (_decodeNan(frame, decoded) || _decodeBeacon(frame, decoded))
+    if (_decodeNan(frame, decoded) || _decodeBeacon(frame, decoded)) {
+        ++_ridMessages;
+        ++_wifiRidMessages;
         _mergeTrack(decoded);
+    }
 }
 
 bool RemoteIdReceiver::_decodeNan(const RawFrame& frame, RemoteIdTrack& out)
@@ -487,6 +502,7 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
 
     if (_count < REMOTE_ID_MAX_TRACKS) {
         _tracks[_count] = incoming;
+        ++_sessionUniqueDrones;
         _triggerNewDroneAlert();
         _exporter.emitJson(_tracks[_count], true);
         _exporter.logCsv(_tracks[_count], true);
@@ -503,6 +519,7 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
             oldest = i;
     }
     _tracks[oldest] = incoming;
+    ++_sessionUniqueDrones;
     _triggerNewDroneAlert();
     _exporter.emitJson(_tracks[oldest], true);
     _exporter.logCsv(_tracks[oldest], true);
