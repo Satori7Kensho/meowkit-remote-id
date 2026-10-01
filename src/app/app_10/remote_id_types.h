@@ -24,6 +24,8 @@ enum class RemoteIdTransport : uint8_t {
 struct RemoteIdTrack {
     bool     active = false;
     uint32_t lastSeenMs = 0;
+    uint32_t lastExportMs = 0;
+    uint32_t lastLogMs = 0;
 
     uint8_t  mac[6] = {0};
     int8_t   rssi = 0;
