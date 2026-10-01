@@ -5,6 +5,7 @@
 #include "drone_scanner.h"
 
 #include <Arduino.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
