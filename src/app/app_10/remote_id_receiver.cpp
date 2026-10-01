@@ -512,8 +512,19 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
 
             current.latitude = incoming.latitude;
             current.longitude = incoming.longitude;
-            current.altitudeMslM = incoming.altitudeMslM;
-            current.heightAglM = incoming.heightAglM;
+            if (incoming.hasGeoAltitude) {
+                current.geoAltitudeM = incoming.geoAltitudeM;
+                current.hasGeoAltitude = true;
+            }
+            if (incoming.hasBaroAltitude) {
+                current.baroAltitudeM = incoming.baroAltitudeM;
+                current.hasBaroAltitude = true;
+            }
+            if (incoming.hasHeight) {
+                current.heightM = incoming.heightM;
+                current.heightReference = incoming.heightReference;
+                current.hasHeight = true;
+            }
             current.speedMps = incoming.speedMps;
             current.headingDeg = incoming.headingDeg;
             current.locationSeenMs = incoming.locationSeenMs;
