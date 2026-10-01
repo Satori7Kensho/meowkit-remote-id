@@ -27,6 +27,7 @@ bool RemoteIdReceiver::begin(DEVICES* device)
 
     _device = device;
     _state = State::Starting;
+    _exporter.begin(_device);
     _count = 0;
     for (auto& t : _tracks) t = RemoteIdTrack{};
 
@@ -125,6 +126,7 @@ void RemoteIdReceiver::end()
             _device->wifi.reconnect();
     }
 
+    _exporter.end();
     _restoreConnection = false;
     _device = nullptr;
     _count = 0;
@@ -422,6 +424,8 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
 
     if (found < _count) {
         RemoteIdTrack& current = _tracks[found];
+        const uint32_t previousExport = current.lastExportMs;
+        const uint32_t previousLog = current.lastLogMs;
 
         // Remote ID over BLE 4.x often rotates one message type at a time.
         // Merge newly received fields instead of replacing the whole track so
@@ -432,10 +436,14 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
         current.transport = incoming.transport;
         std::memcpy(current.mac, incoming.mac, sizeof(current.mac));
 
-        if (incoming.uasId[0])
+        if (incoming.uasId[0]) {
             std::strncpy(current.uasId, incoming.uasId, REMOTE_ID_ID_LEN - 1);
-        if (incoming.operatorId[0])
+            current.uasId[REMOTE_ID_ID_LEN - 1] = '\0';
+        }
+        if (incoming.operatorId[0]) {
             std::strncpy(current.operatorId, incoming.operatorId, REMOTE_ID_ID_LEN - 1);
+            current.operatorId[REMOTE_ID_ID_LEN - 1] = '\0';
+        }
 
         if (incoming.hasLocation) {
             current.latitude = incoming.latitude;
@@ -453,11 +461,28 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
             current.hasOperatorLocation = true;
         }
 
+        current.lastExportMs = previousExport;
+        current.lastLogMs = previousLog;
+
+        if ((uint32_t)(current.lastSeenMs - current.lastExportMs) >= 1000u) {
+            _exporter.emitJson(current, false);
+            current.lastExportMs = current.lastSeenMs;
+        }
+        if ((uint32_t)(current.lastSeenMs - current.lastLogMs) >= 5000u) {
+            _exporter.logCsv(current, false);
+            current.lastLogMs = current.lastSeenMs;
+        }
+
         return;
     }
 
     if (_count < REMOTE_ID_MAX_TRACKS) {
-        _tracks[_count++] = incoming;
+        _tracks[_count] = incoming;
+        _exporter.emitJson(_tracks[_count], true);
+        _exporter.logCsv(_tracks[_count], true);
+        _tracks[_count].lastExportMs = _tracks[_count].lastSeenMs;
+        _tracks[_count].lastLogMs = _tracks[_count].lastSeenMs;
+        ++_count;
         return;
     }
 
@@ -468,6 +493,10 @@ void RemoteIdReceiver::_mergeTrack(const RemoteIdTrack& incoming)
             oldest = i;
     }
     _tracks[oldest] = incoming;
+    _exporter.emitJson(_tracks[oldest], true);
+    _exporter.logCsv(_tracks[oldest], true);
+    _tracks[oldest].lastExportMs = _tracks[oldest].lastSeenMs;
+    _tracks[oldest].lastLogMs = _tracks[oldest].lastSeenMs;
 }
 
 void RemoteIdReceiver::_expireTracks(uint32_t nowMs)
