@@ -34,6 +34,9 @@ public:
     std::size_t count() const { return _count; }
     const RemoteIdTrack* track(std::size_t index) const;
 
+    void setHomeZone(bool enabled, double latitude, double longitude, float radiusM);
+    float homeZoneRadiusM() const { return _homeZoneRadiusM; }
+
     bool bleActive() const { return _bleInited; }
     uint8_t wifiChannel() const { return _channel; }
     uint32_t remoteIdMessages() const { return _ridMessages; }
@@ -82,6 +85,11 @@ private:
 
     bool _alertActive = false;
     uint32_t _alertUntilMs = 0;
+
+    bool _homeZoneEnabled = false;
+    double _homeLat = 0.0;
+    double _homeLon = 0.0;
+    float _homeZoneRadiusM = 250.0f;
     int _savedLedBrightness = 30;
     uint32_t _savedLedColor = 0xFFFFFF;
     int _savedLedEffect = 1;
@@ -104,6 +112,9 @@ private:
     bool _decodeNan(const RawFrame& frame, RemoteIdTrack& out);
     void _mergeTrack(const RemoteIdTrack& incoming);
     void _triggerNewDroneAlert();
+    void _triggerHomeZoneAlert();
+    bool _isInsideHomeZone(const RemoteIdTrack& track) const;
+    static double _distanceMeters(double lat1, double lon1, double lat2, double lon2);
     void _updateAlert(uint32_t nowMs);
     void _restoreLed();
     void _expireTracks(uint32_t nowMs);
